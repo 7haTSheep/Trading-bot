@@ -1,0 +1,33 @@
+{
+  "symbols": [
+    "Volatility 75 (1s) Index",
+    "Volatility 25 (1s) Index",
+    "Volatility 10 (1s) Index",
+    "EURUSD",
+    "USDJPY"
+  ],
+  "scan_interval_seconds": 30,
+  "risk_percent": 5.0,
+  "stop_atr_multiplier": 2.0,
+  "theme": "dark",
+  "font_size": 11,
+  "alert_sound": true,
+  "alert_desktop": true,
+  "log_level": "INFO",
+  "default_timeframe": "M5",
+  "ema_fast": 20,
+  "ema_mid": 50,
+  "ema_slow": 200,
+  "rsi_period": 14,
+  "atr_period": 14,
+  "adx_period": 14,
+  "orb_london_hour": 7,
+  "orb_ny_hour": 13,
+  "orb_range_bars": 3,
+  "ai_enabled": false,
+  "ai_provider": "openai",
+  "ai_model": "gpt-4o",
+  "plugin_dir": "plugins",
+  "db_path": "Logs/history.db",
+  "window_state": {}
+}

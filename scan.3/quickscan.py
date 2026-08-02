@@ -26,6 +26,7 @@ from typing import List, Dict, Optional, Any, Tuple
 import numpy as np
 import MetaTrader5 as mt5
 from candle_monitor import CandleMonitor, is_timeframe_token, timeframe_spec
+from chart_export import write_chart_plan
 
 # ==============================================================================
 # CONSTANTS & STYLING
@@ -1378,6 +1379,10 @@ def scan_symbol(sym: str, risk_pct: float, stop_atr_mult: float, equity: Optiona
     if compare_rows is None:
         print_detailed_scan(result, london, ny, pivots, vwap_val, tf_data, confluence_desc,
                             vol_ctx, invalidation_reasons, risk_pct, stop_atr_mult, equity, info)
+
+    # Drop the trade-critical levels into MQL5/Files for the chart indicator.
+    # Display-only and failure-tolerant: never affects the terminal output above.
+    write_chart_plan(result, mt5)
 
     return result
 

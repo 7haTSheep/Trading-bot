@@ -21,6 +21,15 @@ wheels/
 .installed.cfg
 *.egg
 
+# Node
+# node_modules was previously committed to main by accident (~38k files);
+# it is reinstallable from package-lock.json and must never be tracked.
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+
 # Qt
 *.pyc
 

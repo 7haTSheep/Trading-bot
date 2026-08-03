@@ -234,23 +234,33 @@ void DrawPanel(string json)
    int lines = 1;
    for(int i = 0; i < StringLen(text); i++)
       if(StringGetCharacter(text, i) == '\n') lines++;
+   int panelHeight = 18 + lines * (PanelFontSize + 5);
 
    if(ObjectFind(0, bg) < 0) ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, bg, OBJPROP_CORNER, PanelCorner);
    ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, PanelX);
    ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PanelY);
    ObjectSetInteger(0, bg, OBJPROP_XSIZE, PanelWidth);
-   ObjectSetInteger(0, bg, OBJPROP_YSIZE, 18 + lines * (PanelFontSize + 5));
+   ObjectSetInteger(0, bg, OBJPROP_YSIZE, panelHeight);
    ObjectSetInteger(0, bg, OBJPROP_BGCOLOR, PanelBgColor);
    ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
    ObjectSetInteger(0, bg, OBJPROP_COLOR, PanelBorderColor);
    ObjectSetInteger(0, bg, OBJPROP_BACK, false);
    ObjectSetInteger(0, bg, OBJPROP_SELECTABLE, false);
 
+   // XDISTANCE/YDISTANCE are measured inward from the chosen corner, but an
+   // OBJ_LABEL anchors at its top-left and the text always flows right and
+   // down. On a right or lower corner the text therefore runs off the chart
+   // unless the offset is measured to the far side of the panel box.
+   bool rightCorner = (PanelCorner == CORNER_RIGHT_UPPER || PanelCorner == CORNER_RIGHT_LOWER);
+   bool lowerCorner = (PanelCorner == CORNER_LEFT_LOWER  || PanelCorner == CORNER_RIGHT_LOWER);
+   int textX = rightCorner ? (PanelX + PanelWidth - 10) : (PanelX + 10);
+   int textY = lowerCorner ? (PanelY + panelHeight - 9) : (PanelY + 9);
+
    if(ObjectFind(0, tx) < 0) ObjectCreate(0, tx, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, tx, OBJPROP_CORNER, PanelCorner);
-   ObjectSetInteger(0, tx, OBJPROP_XDISTANCE, PanelX + 10);
-   ObjectSetInteger(0, tx, OBJPROP_YDISTANCE, PanelY + 9);
+   ObjectSetInteger(0, tx, OBJPROP_XDISTANCE, textX);
+   ObjectSetInteger(0, tx, OBJPROP_YDISTANCE, textY);
    ObjectSetInteger(0, tx, OBJPROP_COLOR, biasClr);
    ObjectSetInteger(0, tx, OBJPROP_FONTSIZE, PanelFontSize);
    ObjectSetString(0, tx, OBJPROP_FONT, "Consolas");

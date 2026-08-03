@@ -29,6 +29,13 @@ Logs/*.db
 Logs/*.log
 *.log
 
+# Runtime data written by the scanner, not source. signals.jsonl is the
+# outcome-tracking log and is rewritten as trades resolve; chart_plan_*.json
+# is regenerated every candle.
+signals.jsonl
+signals.jsonl.tmp
+chart_plan_*.json
+
 # Environments
 .env
 .venv

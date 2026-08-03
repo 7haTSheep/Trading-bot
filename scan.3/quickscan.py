@@ -27,6 +27,7 @@ import numpy as np
 import MetaTrader5 as mt5
 from candle_monitor import CandleMonitor, is_timeframe_token, timeframe_spec
 from chart_export import write_chart_plan
+from outcome_tracker import log_signal
 
 # ==============================================================================
 # CONSTANTS & STYLING
@@ -915,22 +916,38 @@ def calculate_profit_targets(trend: str, price: float, stop_dist: float, atr_val
 
     tp2_dist = 2.5 * (atr_val or 1.0)
     tp2_price = price + tp2_dist if is_bull else price - tp2_dist
-    if is_bull and pivots.get('R1') and pivots['R1'] > price:
-        tp2_price = pivots['R1']
-    elif not is_bull and pivots.get('S1') and pivots['S1'] < price:
-        tp2_price = pivots['S1']
-    rr2 = abs(tp2_price - price) / stop_dist
-    targets.append(ProfitTargetItem('TP2', tp2_price, rr2, 60, '~45-90m'))
-
+    # Snap to the pivot only when it actually sits between this target and the
+    # next one. Taking it unconditionally let a distant R1 push TP2 past TP3,
+    # producing targets out of order, R:R that fell as the target number rose,
+    # and a nearer target advertised as less likely than a further one.
     tp3_dist = 4.0 * (atr_val or 1.0)
     tp3_price = price + tp3_dist if is_bull else price - tp3_dist
-    rr3 = abs(tp3_price - price) / stop_dist
-    targets.append(ProfitTargetItem('TP3', tp3_price, rr3, 40, '~2-4h'))
+    if is_bull and pivots.get('R1') and price < pivots['R1'] < tp3_price:
+        tp2_price = pivots['R1']
+    elif not is_bull and pivots.get('S1') and tp3_price < pivots['S1'] < price:
+        tp2_price = pivots['S1']
 
     runner_dist = 6.0 * (atr_val or 1.0)
     runner_price = price + runner_dist if is_bull else price - runner_dist
-    rr_runner = abs(runner_price - price) / stop_dist
-    targets.append(ProfitTargetItem('Runner Target', runner_price, rr_runner, 25, 'Intraday/Swing'))
+
+    # Final guard: keep targets strictly ordered away from entry whatever the
+    # structural snapping produced, so the fixed 80/60/40/25 probability
+    # ladder stays coherent (a nearer target must never be the less likely).
+    min_gap = 0.25 * (atr_val or 1.0)
+    ordered = [tp1_price]
+    for candidate in (tp2_price, tp3_price, runner_price):
+        previous = ordered[-1]
+        if is_bull:
+            ordered.append(max(candidate, previous + min_gap))
+        else:
+            ordered.append(min(candidate, previous - min_gap))
+
+    for name, target_price, probability, hold in zip(
+            ('TP2', 'TP3', 'Runner Target'), ordered[1:], (60, 40, 25),
+            ('~45-90m', '~2-4h', 'Intraday/Swing')):
+        targets.append(ProfitTargetItem(name, target_price,
+                                        abs(target_price - price) / stop_dist,
+                                        probability, hold))
 
     return targets
 
@@ -1384,6 +1401,10 @@ def scan_symbol(sym: str, risk_pct: float, stop_atr_mult: float, equity: Optiona
     # Display-only and failure-tolerant: never affects the terminal output above.
     write_chart_plan(result, mt5)
 
+    # Record actionable signals so grades can be scored against real outcomes
+    # later (see outcomes.py). Skips repeats of a setup already logged.
+    log_signal(result, 'M5', int(getattr(tick, 'time', 0) or 0))
+
     return result
 
 
@@ -1614,6 +1635,12 @@ def main():
     p.add_argument('--stop-atr', type=float, default=2.0, help='Stop distance as multiple of M5 ATR fallback (default 2.0)')
     p.add_argument('--compare', action='store_true', help='Compact side-by-side table instead of full detail per symbol')
     args = p.parse_args(argv)
+
+    # A symbol quoted with a stray trailing space ("Volatility 5 (1s) Index ")
+    # is not the name MT5 knows, so symbol_select fails and that symbol is
+    # skipped silently -- the scan simply produces nothing for it. Strip here
+    # rather than let a typo cost a symbol without any visible error.
+    args.symbols = [s.strip() for s in args.symbols if s.strip()]
 
     if not args.symbols:
         p.error('at least one symbol is required')

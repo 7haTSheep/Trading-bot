@@ -92,6 +92,32 @@ class InstitutionalEngineTests(unittest.TestCase):
         self.assertGreater(targets[0].price, 100.0)
         self.assertGreater(targets[1].rr, targets[0].rr)
 
+    def test_profit_targets_are_ordered_away_from_entry(self):
+        """A distant pivot must not push TP2 past TP3.
+
+        R1 was previously taken for TP2 unconditionally, so a pivot beyond
+        TP3's 4x ATR produced targets out of order: R:R fell as the target
+        number rose, and the fixed 80/60/40 ladder then advertised a nearer
+        target as less likely than a further one. An EA placing these as real
+        take-profit orders would set them at the wrong levels.
+        """
+        for r1 in (104.0, 108.0, 110.0, 140.0):
+            targets = quickscan.calculate_profit_targets(
+                trend='BULL', price=100.0, stop_dist=2.0, atr_val=2.0,
+                swing_high=105.0, swing_low=95.0, pivots={'R1': r1})
+            prices = [t.price for t in targets]
+            self.assertEqual(prices, sorted(prices), f'targets out of order for R1={r1}')
+            self.assertEqual(len(set(prices)), len(prices), f'duplicate targets for R1={r1}')
+            rrs = [t.rr for t in targets]
+            self.assertEqual(rrs, sorted(rrs), f'R:R must rise with distance for R1={r1}')
+
+        for s1 in (96.0, 92.0, 90.0, 60.0):
+            targets = quickscan.calculate_profit_targets(
+                trend='BEAR', price=100.0, stop_dist=2.0, atr_val=2.0,
+                swing_high=105.0, swing_low=95.0, pivots={'S1': s1})
+            prices = [t.price for t in targets]
+            self.assertEqual(prices, sorted(prices, reverse=True), f'short targets out of order for S1={s1}')
+
     def test_fair_value_gap_detection(self):
         h = np.array([100.0, 101.0, 106.0, 107.0, 108.0])
         l = np.array([98.0, 99.0, 103.0, 105.0, 106.0])

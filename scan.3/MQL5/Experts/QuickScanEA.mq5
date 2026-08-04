@@ -35,6 +35,13 @@ input bool   UseProfitLock    = true;    // Lock a small profit well before TP1
 input double ProfitLockTriggerR = 0.30;  // Arm once profit reaches this multiple of initial risk
 input double ProfitLockLevelR   = 0.15;  // Then move SL to entry plus this multiple of risk
 
+input string _s2c            = "--- Re-entry ---";      //
+input bool   BlockReentryUntilPullback = true; // After a close, wait for a pullback before re-entering
+// Measured median wait on these symbols: 0.5 ATR is met inside a single
+// candle, so it barely delays anything. 1.0 = about 2 candles, 1.5 = 4,
+// 2.0 = 8. ATR is the average candle range, hence half of it being routine.
+input double ReentryPullbackATR = 1.0;   // How far price must retrace from its extreme, in ATR
+
 input string _s3             = "--- Execution ---";     //
 input int    CheckSeconds     = 5;       // How often to re-read the plan file
 input int    MaxPlanAgeSec    = 600;     // Ignore a plan older than this (stale scanner)
@@ -43,6 +50,16 @@ input long   MagicNumber      = 20260803;
 
 CTrade trade;
 string lastActedPlan = "";
+
+// Re-entry state. A stop-out and the next signal can land in the same
+// second, because the setup that produced the signal is still standing the
+// moment the trade dies -- so the EA re-buys the thesis that just failed at
+// a worse price. These track whether a pullback has happened since.
+bool   hadPosition   = false;
+string lastTradeDir  = "";
+bool   awaitPullback = false;
+double extremeSinceClose = 0.0;
+int    lastPullbackLog   = -1;
 double dayStartEquity = 0.0;
 int    dayStartDate   = 0;
 bool   halted         = false;
@@ -301,8 +318,15 @@ void ManageTargetLadder(bool ladderDue)
 
    if(best == 0) return;
 
+   // Round to the symbol's digits before comparing. The broker stores the
+   // stop rounded, while these levels are computed at full precision, so an
+   // unrounded compare sees a difference that does not exist and asks for a
+   // modify the broker rejects as "no changes" (10025) on every tick.
+   best = NormalizeDouble(best, _Digits);
+   double currentSLn = NormalizeDouble(currentSL, _Digits);
+
    // Only ever move the stop toward profit.
-   bool improves = (currentSL == 0) || (isBuy ? best > currentSL : best < currentSL);
+   bool improves = (currentSLn == 0) || (isBuy ? best > currentSLn : best < currentSLn);
    if(!improves) return;
 
    // The broker rejects a stop placed nearer than its minimum distance.
@@ -313,11 +337,85 @@ void ManageTargetLadder(bool ladderDue)
    if(stopsLevel > 0 && point > 0 && MathAbs(price - best) < stopsLevel * point) return;
 
    if(trade.PositionModify(_Symbol, best, currentTP))
+     {
       Print("QuickScanEA: ", _Symbol, " closed beyond ", reached,
             " -> SL moved to ", DoubleToString(best, _Digits),
             " (locked ", DoubleToString(isBuy ? best - openPrice : openPrice - best, _Digits), ")");
+     }
+   else if(trade.ResultRetcode() == TRADE_RETCODE_NO_CHANGES)
+     {
+      // The stop is already where it should be. Not a failure, and logging
+      // it would repeat on every tick for the life of the position.
+     }
    else
-      Print("QuickScanEA: SL move to ", reached, " failed retcode=", trade.ResultRetcode());
+     {
+      Print("QuickScanEA: SL move to ", reached, " failed retcode=",
+            trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+     }
+  }
+
+// Average true range over the last `bars` completed candles, computed from
+// price directly so there is no indicator handle to create or release.
+double SimpleATR(int bars)
+  {
+   if(bars < 1) return(0);
+   double sum = 0;
+   for(int i = 1; i <= bars; i++)
+     {
+      double h = iHigh(_Symbol, PERIOD_CURRENT, i);
+      double l = iLow(_Symbol, PERIOD_CURRENT, i);
+      double pc = iClose(_Symbol, PERIOD_CURRENT, i + 1);
+      if(h == 0 || l == 0 || pc == 0) return(0);
+      sum += MathMax(h - l, MathMax(MathAbs(h - pc), MathAbs(l - pc)));
+     }
+   return(sum / bars);
+  }
+
+// Notices the moment a position disappears and starts requiring a pullback
+// before the same direction may be traded again. The opposite direction is
+// not blocked: that is a different thesis, not a re-entry into a failed one.
+void TrackPositionClose()
+  {
+   bool has = HasOwnPositionOnSymbol();
+   if(hadPosition && !has && BlockReentryUntilPullback)
+     {
+      awaitPullback = true;
+      extremeSinceClose = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      lastPullbackLog = -1;
+      Print("QuickScanEA: ", _Symbol, " position closed - waiting for a ",
+            DoubleToString(ReentryPullbackATR, 2), " ATR pullback before re-entering ", lastTradeDir);
+     }
+   hadPosition = has;
+  }
+
+// True once price has retraced far enough from the best level reached since
+// the close. Measured against the extreme rather than the close price so a
+// run further in the trade's favour raises the bar instead of counting as
+// the pullback itself.
+bool PullbackSatisfied(bool isBuy)
+  {
+   if(!awaitPullback || !BlockReentryUntilPullback) return(true);
+
+   double price = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+                        : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(price <= 0) return(false);
+
+   if(extremeSinceClose <= 0) extremeSinceClose = price;
+   if(isBuy) { if(price > extremeSinceClose) extremeSinceClose = price; }
+   else      { if(price < extremeSinceClose) extremeSinceClose = price; }
+
+   double atr = SimpleATR(14);
+   if(atr <= 0) { awaitPullback = false; return(true); }   // cannot measure; do not block forever
+
+   double retrace = isBuy ? (extremeSinceClose - price) : (price - extremeSinceClose);
+   if(retrace >= ReentryPullbackATR * atr)
+     {
+      awaitPullback = false;
+      Print("QuickScanEA: ", _Symbol, " pulled back ", DoubleToString(retrace / atr, 2),
+            " ATR - re-entry allowed");
+      return(true);
+     }
+   return(false);
   }
 
 void ResetDailyBaselineIfNeeded()
@@ -415,6 +513,31 @@ void TryTrade()
    if(isBuy  && (stop >= entry || exitTarget <= entry)) return;
    if(!isBuy && (stop <= entry || exitTarget >= entry)) return;
 
+   // A signal in the other direction is a new thesis, not a re-entry into
+   // the one that just failed, so it clears the wait rather than serving it.
+   string thisDir = isBuy ? "BUY" : "SELL";
+   if(awaitPullback && thisDir != lastTradeDir)
+     {
+      awaitPullback = false;
+      Print("QuickScanEA: ", _Symbol, " signal flipped to ", thisDir, " - pullback wait cleared");
+     }
+   if(!PullbackSatisfied(isBuy))
+     {
+      int bar = (int)iTime(_Symbol, PERIOD_CURRENT, 0);
+      if(bar != lastPullbackLog)
+        {
+         lastPullbackLog = bar;
+         double atr = SimpleATR(14);
+         double retrace = isBuy ? (extremeSinceClose - entry) : (entry - extremeSinceClose);
+         Print("QuickScanEA: ", _Symbol, " ", decision, " held - only ",
+               DoubleToString(atr > 0 ? retrace / atr : 0, 2), " ATR back from ",
+               DoubleToString(extremeSinceClose, _Digits), ", need ",
+               DoubleToString(ReentryPullbackATR, 2));
+        }
+      lastActedPlan = planId;
+      return;
+     }
+
    double lot = LotForRisk(entry, stop);
    if(lot <= 0)
      {
@@ -434,6 +557,8 @@ void TryTrade()
       // Capture the ladder now; the plan file is rewritten every candle and
       // these levels would otherwise drift away from the ones traded.
       StoreLadder(stop, tp1, tp2, tp3);
+      lastTradeDir = thisDir;
+      hadPosition = true;   // so the close is detected on the very next tick
       Print("QuickScanEA: ", decision, " ", _Symbol, " lot=", DoubleToString(lot, 2),
             " sl=", DoubleToString(stop, _Digits), " tp=", DoubleToString(exitTarget, _Digits),
             " ladder=", DoubleToString(tp1, _Digits), "/", DoubleToString(tp2, _Digits),
@@ -488,6 +613,7 @@ void OnTimer()
       if(ladderDue) lastLadderBar = bar;
      }
    ManageTargetLadder(ladderDue);
+   TrackPositionClose();   // must run before TryTrade so a close is seen first
 
    TryTrade();
   }

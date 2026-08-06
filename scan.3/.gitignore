@@ -48,3 +48,4 @@ ENV/
 .idea/
 .DS_Store
 Thumbs.db
+signals.jsonl.backup-*

@@ -87,20 +87,39 @@ def _summarise(values: List[float]) -> Dict[str, Any]:
 
 
 def build(directory: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-    """Per-symbol and per-score-bucket statistics from resolved signals."""
+    """Per-symbol and per-score-bucket statistics from resolved signals.
+
+    Historical rows are counted, since waiting for live signals alone puts
+    the evidence bar most of a year away, but the split is carried through
+    so a verdict never conceals which kind of evidence produced it. Score
+    bands use live rows only: the replay does not reproduce the live
+    scoring, so its rows carry no meaningful score.
+    """
     rows = outcome_tracker.load_signals(directory)
     by_symbol: Dict[str, List[float]] = {}
     by_score: Dict[str, List[float]] = {}
+    counts: Dict[str, Dict[str, int]] = {}
     for row in rows:
         r = _r_multiple(row)
         if r is None:
             continue
-        by_symbol.setdefault(str(row.get('symbol')), []).append(r)
-        bucket = _score_bucket(row.get('score'))
-        if bucket:
-            by_score.setdefault(bucket, []).append(r)
+        symbol = str(row.get('symbol'))
+        historical = row.get('source') == 'historical'
+        by_symbol.setdefault(symbol, []).append(r)
+        tally = counts.setdefault(symbol, {'live': 0, 'historical': 0})
+        tally['historical' if historical else 'live'] += 1
+        if not historical:
+            bucket = _score_bucket(row.get('score'))
+            if bucket:
+                by_score.setdefault(bucket, []).append(r)
+
+    symbol_stats = {}
+    for name, values in by_symbol.items():
+        stats = _summarise(values)
+        stats.update(counts.get(name, {'live': 0, 'historical': 0}))
+        symbol_stats[name] = stats
     return {
-        'symbol': {k: _summarise(v) for k, v in by_symbol.items()},
+        'symbol': symbol_stats,
         'score': {k: _summarise(v) for k, v in by_score.items()},
     }
 
@@ -146,12 +165,14 @@ def report(directory: Optional[str] = None) -> str:
         if not group:
             lines.append('   nothing resolved yet')
         else:
-            lines.append(f'   {"bucket":28s}{"n":>5s}{"win%":>7s}{"meanR":>9s}{"+/-":>8s}  verdict')
+            extra = f'{"live/hist":>12s}' if key == 'symbol' else ''
+            lines.append(f'   {"bucket":28s}{"n":>6s}{"win%":>7s}{"meanR":>9s}{"+/-":>8s}{extra}  verdict')
             for name, s in sorted(group.items(), key=lambda kv: -kv[1]['n']):
                 margin = CONFIDENCE_Z * s['stderr']
                 margin_text = f'{margin:7.3f}' if math.isfinite(margin) else '      -'
-                lines.append(f'   {name:28s}{s["n"]:5d}{100*s["wins"]/s["n"]:6.0f}%'
-                             f'{s["mean_r"]:9.3f}{margin_text}  {s["verdict"]}')
+                split = f'{s.get("live", 0):>6d}/{s.get("historical", 0):<5d}' if key == 'symbol' else ''
+                lines.append(f'   {name:28s}{s["n"]:6d}{100*s["wins"]/s["n"]:6.0f}%'
+                             f'{s["mean_r"]:9.3f}{margin_text}{split}  {s["verdict"]}')
         lines.append('')
 
     acting = [f'{k} ({v["mean_r"]:+.3f}R)' for k, v in

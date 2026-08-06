@@ -28,6 +28,7 @@ import MetaTrader5 as mt5
 from candle_monitor import CandleMonitor, is_timeframe_token, timeframe_spec
 from chart_export import write_chart_plan
 from outcome_tracker import log_signal
+from calibration import should_suppress
 
 # ==============================================================================
 # CONSTANTS & STYLING
@@ -1404,6 +1405,16 @@ def scan_symbol(sym: str, risk_pct: float, stop_atr_mult: float, equity: Optiona
     # Record actionable signals so grades can be scored against real outcomes
     # later (see outcomes.py). Skips repeats of a setup already logged.
     log_signal(result, 'M5', int(getattr(tick, 'time', 0) or 0))
+
+    # Warn when past results argue against this signal. Purely advisory: the
+    # calibration gate stays silent until a bucket has enough resolved trades
+    # to be distinguishable from chance, so this prints nothing early on.
+    try:
+        suppress, why = should_suppress(result.symbol, result.decision_panel.entry_quality_score)
+        if suppress:
+            print(colorize_text(f'\n   CALIBRATION WARNING: {why}'))
+    except Exception:
+        pass   # advisory only; never let it interfere with a completed scan
 
     return result
 

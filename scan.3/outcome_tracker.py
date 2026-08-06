@@ -24,6 +24,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 LOG_FILENAME = 'signals.jsonl'
+# Recent bars pulled when resolving; must comfortably exceed the resolution
+# window so a signal from days ago still has its forward bars available.
+LOOKUP_BARS = 5000
 
 OUTCOME_OPEN = 'OPEN'
 OUTCOME_STOP = 'SL'
@@ -175,16 +178,22 @@ def resolve_pending(mt5: Any, timeframe_const: Any, max_bars: int = 288,
         symbol = row['symbol']
         if not mt5.symbol_select(symbol, True):
             continue
-        bars = mt5.copy_rates_from(symbol, timeframe_const,
-                                   datetime.fromtimestamp(int(row['signal_time'])), max_bars)
-        if bars is None or len(bars) == 0:
+        # copy_rates_from returns bars ENDING at the given date, so asking
+        # for the signal time yields only history preceding it and nothing
+        # ever resolves. Pull recent bars by position and filter on the raw
+        # epoch instead: bar times and signal_time are both broker epochs,
+        # so comparing them directly also avoids any timezone conversion.
+        raw = mt5.copy_rates_from_pos(symbol, timeframe_const, 0, LOOKUP_BARS)
+        if raw is None or len(raw) == 0:
             continue
+        signal_time = int(row['signal_time'])
+        bars = [b for b in raw if int(b['time']) > signal_time][:max_bars]
+        if not bars:
+            continue  # signal is newer than the last closed bar; try later
 
         outcome = None
         bars_taken = 0
-        for index, bar in enumerate(bars):
-            if int(bar['time']) <= int(row['signal_time']):
-                continue  # only bars strictly after the signal count
+        for index, bar in enumerate(bars, start=1):
             bars_taken = index
             outcome = _classify_bar(row, float(bar['high']), float(bar['low']))
             if outcome:

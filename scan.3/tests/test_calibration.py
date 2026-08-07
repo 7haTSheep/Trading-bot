@@ -64,5 +64,37 @@ class CalibrationGateTests(unittest.TestCase):
         self.assertIsNone(calibration._r_multiple(signal('X', 88, 'OPEN')))
 
 
+class EntryPlacementTests(unittest.TestCase):
+    """Where the entry sat relative to the zone the scanner published.
+
+    A buy waits for price to fall into the zone, so an entry above it was
+    taken before price arrived and one below it after price passed through.
+    A sell mirrors that, which is the part easiest to get backwards.
+    """
+
+    def test_buy_placement(self):
+        self.assertEqual(ot._classify_placement('BUY', 101, 100, 102), ot.PLACEMENT_IN)
+        self.assertEqual(ot._classify_placement('BUY', 105, 100, 102), ot.PLACEMENT_BEFORE)
+        self.assertEqual(ot._classify_placement('BUY', 95, 100, 102), ot.PLACEMENT_AFTER)
+
+    def test_sell_placement_is_mirrored(self):
+        self.assertEqual(ot._classify_placement('SELL', 101, 100, 102), ot.PLACEMENT_IN)
+        self.assertEqual(ot._classify_placement('SELL', 95, 100, 102), ot.PLACEMENT_BEFORE)
+        self.assertEqual(ot._classify_placement('SELL', 105, 100, 102), ot.PLACEMENT_AFTER)
+
+    def test_boundaries_count_as_inside(self):
+        self.assertEqual(ot._classify_placement('BUY', 100, 100, 102), ot.PLACEMENT_IN)
+        self.assertEqual(ot._classify_placement('BUY', 102, 100, 102), ot.PLACEMENT_IN)
+
+    def test_missing_zone_yields_no_placement(self):
+        self.assertIsNone(ot._classify_placement('BUY', 101, None, None))
+
+    def test_zone_parsing_handles_en_dash(self):
+        # The scanner renders zones with an en dash, not a hyphen.
+        self.assertEqual(ot._zone_bounds('7854.9–7865.9'), (7854.9, 7865.9))
+        self.assertEqual(ot._zone_bounds('7854.9-7865.9'), (7854.9, 7865.9))
+        self.assertEqual(ot._zone_bounds(''), (None, None))
+
+
 if __name__ == '__main__':
     unittest.main()

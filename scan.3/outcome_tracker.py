@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -31,6 +32,36 @@ LOOKUP_BARS = 5000
 OUTCOME_OPEN = 'OPEN'
 OUTCOME_STOP = 'SL'
 OUTCOME_EXPIRED = 'EXPIRED'
+
+PLACEMENT_IN = 'IN_ZONE'
+PLACEMENT_BEFORE = 'BEFORE_ZONE'
+PLACEMENT_AFTER = 'AFTER_ZONE'
+
+
+def _zone_bounds(text: Any) -> tuple:
+    """Low and high of a displayed zone such as '7854.9-7865.9'."""
+    values = [float(x) for x in re.findall(r'\d+\.?\d*', str(text or ''))]
+    if not values:
+        return (None, None)
+    return (min(values), max(values))
+
+
+def _classify_placement(direction: str, price: float,
+                        low: Optional[float], high: Optional[float]) -> Optional[str]:
+    """Whether the entry beat price to the zone, met it, or missed it.
+
+    A buy waits for price to fall into the zone, so sitting above it means
+    the entry was taken before price got there, and below it means price had
+    already passed through. A sell is the mirror. This measures the timing
+    of the entry, not whether the direction was right.
+    """
+    if low is None or high is None:
+        return None
+    if low <= price <= high:
+        return PLACEMENT_IN
+    if direction == 'BUY':
+        return PLACEMENT_BEFORE if price > high else PLACEMENT_AFTER
+    return PLACEMENT_BEFORE if price < low else PLACEMENT_AFTER
 
 
 def _log_path(directory: Optional[str] = None) -> str:
@@ -113,6 +144,14 @@ def log_signal(scan: Any, timeframe: str, signal_time: int,
             return None
 
         direction = 'BUY' if decision == 'BUY NOW' else 'SELL'
+
+        # Where price sat relative to the zone the scanner published. The
+        # signal says "enter here", so whether price had actually arrived is
+        # the measure of the entry's timing rather than of its direction.
+        zone_text = (scan.entry_panel.ideal_sell_zone if direction == 'SELL'
+                     else scan.entry_panel.ideal_buy_zone)
+        zone_low, zone_high = _zone_bounds(zone_text)
+        placement = _classify_placement(direction, entry, zone_low, zone_high)
         rows = load_signals(directory)
         if _has_live_signal(rows, scan.symbol, direction, int(signal_time)):
             return None  # already in this trade; do not count it twice
@@ -129,6 +168,10 @@ def log_signal(scan: Any, timeframe: str, signal_time: int,
             'entry': entry,
             'stop': stop,
             'targets': targets,
+            'zone_low': zone_low,
+            'zone_high': zone_high,
+            'placement': placement,
+            'zone_reached_bars': None,   # filled in on resolution
             'outcome': OUTCOME_OPEN,
             'outcome_bars': None,
             'resolved_at_utc': None,
@@ -190,6 +233,17 @@ def resolve_pending(mt5: Any, timeframe_const: Any, max_bars: int = 288,
         bars = [b for b in raw if int(b['time']) > signal_time][:max_bars]
         if not bars:
             continue  # signal is newer than the last closed bar; try later
+
+        # Did price ever reach the zone afterwards? For a signal taken
+        # before price arrived, this is the difference between a zone that
+        # was merely early and one price never visited at all.
+        zone_low, zone_high = row.get('zone_low'), row.get('zone_high')
+        if zone_low is not None and zone_high is not None and row.get('zone_reached_bars') is None:
+            for index, bar in enumerate(bars, start=1):
+                if float(bar['low']) <= zone_high and float(bar['high']) >= zone_low:
+                    row['zone_reached_bars'] = index
+                    changed = True
+                    break
 
         outcome = None
         bars_taken = 0

@@ -27,7 +27,7 @@ import numpy as np
 import MetaTrader5 as mt5
 from candle_monitor import CandleMonitor, is_timeframe_token, timeframe_spec
 from chart_export import write_chart_plan
-from outcome_tracker import log_signal
+from outcome_tracker import log_signal, resolve_pending
 from calibration import should_suppress
 
 # ==============================================================================
@@ -40,6 +40,10 @@ RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
 # Countdown cadence when stdout is captured/piped and can't repaint a line.
 STATUS_LINE_SECONDS = 60
+# Candles between automatic outcome resolutions. Signals need forward
+# bars before they can resolve, so doing it every candle would mostly
+# re-read the log for nothing.
+RESOLVE_EVERY_CANDLES = 12
 
 ANSI_GREEN = '\033[92m'
 ANSI_RED = '\033[91m'
@@ -1588,6 +1592,7 @@ def run_candle_event_mode(args, equity, spec):
 
     primary = next(iter(monitors.values()))
     last_status_second = -1
+    candles_since_resolve = 0
     while True:
         triggered = [sym for sym, monitor in monitors.items()
                      if monitor.new_closed_candle() is not None]
@@ -1606,6 +1611,21 @@ def run_candle_event_mode(args, equity, spec):
                 # print the whole table twice.
                 for monitor in monitors.values():
                     monitor.new_closed_candle()
+
+            # Close the measurement loop here rather than leaving it to be
+            # run by hand. Signals sat unresolved for days that way, so the
+            # calibration had nothing to learn from and said so silently.
+            candles_since_resolve += 1
+            if candles_since_resolve >= RESOLVE_EVERY_CANDLES:
+                candles_since_resolve = 0
+                try:
+                    resolved = resolve_pending(mt5, spec['mt5_timeframe'])
+                    if resolved:
+                        summary = ', '.join(f'{k}={v}' for k, v in sorted(resolved.items()))
+                        print(f'\n   outcomes resolved: {summary}')
+                except Exception as exc:      # never let bookkeeping stop the scan
+                    print(f'\n   (outcome resolution skipped: {exc})')
+
             last_status_second = -1
             continue
 

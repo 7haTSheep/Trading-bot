@@ -18,6 +18,7 @@ declines to act when the measurement is too weak to trust.
 from __future__ import annotations
 
 import math
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import outcome_tracker
@@ -86,8 +87,26 @@ def _summarise(values: List[float]) -> Dict[str, Any]:
             'wins': sum(1 for v in values if v > 0)}
 
 
-def build(directory: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+_cache: Dict[str, Any] = {'key': None, 'model': None}
+
+
+def _cache_key(directory: Optional[str]) -> Optional[tuple]:
+    """Identity of the log file, so a rebuild only happens when it changes."""
+    path = outcome_tracker._log_path(directory)
+    try:
+        stat = os.stat(path)
+        return (path, stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return None
+
+
+def build(directory: Optional[str] = None, use_cache: bool = True) -> Dict[str, Dict[str, Any]]:
     """Per-symbol and per-score-bucket statistics from resolved signals.
+
+    The result is cached against the log's modification time. The scanner
+    asks about every symbol on every scan, and once the log held ~11,000
+    rows that was re-reading and re-parsing the whole file each time, about
+    1.4 seconds per scan for an answer that only changes when the file does.
 
     Historical rows are counted, since waiting for live signals alone puts
     the evidence bar most of a year away, but the split is carried through
@@ -95,6 +114,10 @@ def build(directory: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     bands use live rows only: the replay does not reproduce the live
     scoring, so its rows carry no meaningful score.
     """
+    key = _cache_key(directory)
+    if use_cache and key is not None and _cache['key'] == key and _cache['model'] is not None:
+        return _cache['model']
+
     rows = outcome_tracker.load_signals(directory)
     by_symbol: Dict[str, List[float]] = {}
     by_score: Dict[str, List[float]] = {}
@@ -118,10 +141,13 @@ def build(directory: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         stats = _summarise(values)
         stats.update(counts.get(name, {'live': 0, 'historical': 0}))
         symbol_stats[name] = stats
-    return {
+    model = {
         'symbol': symbol_stats,
         'score': {k: _summarise(v) for k, v in by_score.items()},
     }
+    if key is not None:
+        _cache['key'], _cache['model'] = key, model
+    return model
 
 
 def should_suppress(symbol: str, score: Any,

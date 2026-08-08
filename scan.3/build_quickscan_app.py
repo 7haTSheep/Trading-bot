@@ -24,7 +24,8 @@ STAGE = ROOT / 'build' / '_stage'
 # Imported dynamically inside the worker thread, so PyInstaller's static
 # analysis does not see them and would otherwise leave them out.
 HIDDEN = ['MetaTrader5', 'numpy', 'quickscan', 'candle_monitor', 'chart_export',
-          'outcome_tracker', 'calibration']
+          'outcome_tracker', 'calibration', 'trades', 'theme', 'surface',
+          'trades_view']
 
 
 def main() -> int:
@@ -69,7 +70,8 @@ def main() -> int:
     # The scanner modules are imported at runtime; ship the sources too so a
     # traceback in the bundle still points at real code.
     for source in ('quickscan.py', 'candle_monitor.py', 'chart_export.py',
-                   'outcome_tracker.py', 'calibration.py'):
+                   'outcome_tracker.py', 'calibration.py', 'trades.py',
+                   'theme.py', 'surface.py', 'trades_view.py'):
         if (ROOT / source).exists():
             command.append(f'--add-data={ROOT / source};.')
     command.append(str(APP))

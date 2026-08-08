@@ -126,9 +126,16 @@ def main() -> int:
             for item in source.glob('*.mq5'):
                 shutil.copy2(item, destination / item.name)
                 print(f'included MQL5/{sub}/{item.name}')
-    readme = ROOT / 'README.md'
+    # APP_README is the one written for the packaged application. The
+    # project's own README describes running from source -- Install.bat,
+    # python quickscan.py -- none of which exists in this folder, so shipping
+    # it would tell the user to do things they cannot do.
+    readme = ROOT / 'APP_README.md'
+    if not readme.exists():
+        readme = ROOT / 'README.md'
     if readme.exists():
         shutil.copy2(readme, dist_dir / 'README.md')
+        print(f'included {readme.name} as README.md')
 
     size = sum(f.stat().st_size for f in (ROOT / 'dist' / 'QuickScan').rglob('*') if f.is_file())
     print(f'\nBuilt: {target}')

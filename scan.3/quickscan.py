@@ -1086,7 +1086,7 @@ def scan_symbol(sym: str, risk_pct: float, stop_atr_mult: float, equity: Optiona
         if compare_rows is not None:
             compare_rows.append((sym, 'NOT AVAILABLE', '', '', '', '', ''))
         if summary_rows is not None:
-            summary_rows.append((sym, 'N/A', 'UNAVAILABLE', 'N/A', 'N/A', 'N/A', '❌ NOT AVAILABLE'))
+            summary_rows.append((sym, '-', '-', '-', 'N/A', 'UNAVAILABLE', 'N/A', 'N/A', 'N/A', '❌ NOT AVAILABLE'))
         else:
             print(f'\n=== {sym} === NOT AVAILABLE on this account')
         return None
@@ -1097,7 +1097,7 @@ def scan_symbol(sym: str, risk_pct: float, stop_atr_mult: float, equity: Optiona
         if compare_rows is not None:
             compare_rows.append((sym, 'NO DATA', '', '', '', '', ''))
         if summary_rows is not None:
-            summary_rows.append((sym, 'NO DATA', 'NO DATA', 'N/A', 'N/A', 'N/A', '❌ NO DATA'))
+            summary_rows.append((sym, '-', '-', '-', 'NO DATA', 'NO DATA', 'N/A', 'N/A', 'N/A', '❌ NO DATA'))
         else:
             print(f'\n=== {sym} === no live data')
         return None
@@ -1390,6 +1390,9 @@ def scan_symbol(sym: str, risk_pct: float, stop_atr_mult: float, equity: Optiona
         rr_str = f'{profit_targets[0].rr:.2f}:1' if profit_targets else 'N/A'
         summary_rows.append((
             sym,
+            f'{quality_score}/100',
+            grade,
+            confidence,
             f'{confluence_desc}',
             f'{entry_state_icon(entry_state, trend=trend)} {detailed_pullback}',
             vol_ctx['label'].split()[0],
@@ -1522,7 +1525,9 @@ def print_compare_table(rows: list) -> None:
 
 
 def print_master_summary(summary_rows: list) -> None:
-    headers = ['Symbol', 'Bias & Confluence', 'Entry State & Pullback', 'Volatility', 'TP1 / TP2 Target', 'R:R (TP1)', 'Action']
+    headers = ['Symbol', 'Score', 'Grade', 'Confidence', 'Bias & Confluence',
+               'Entry State & Pullback', 'Volatility', 'TP1 / TP2 Target',
+               'R:R (TP1)', 'Action']
     widths = [max(len(str(r[i])) for r in ([headers] + summary_rows)) for i in range(len(headers))]
     def fmt_row(r):
         return '  '.join(str(c).ljust(w) for c, w in zip(r, widths))

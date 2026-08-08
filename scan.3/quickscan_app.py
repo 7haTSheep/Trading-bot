@@ -25,7 +25,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow,
+                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                                QPlainTextEdit, QPushButton, QSplitter,
                                QVBoxLayout, QWidget)
 
@@ -234,7 +234,16 @@ class MainWindow(QMainWindow):
             '  1. Press "Load symbols from MetaTrader"\n'
             '  2. Tick the symbols you want to watch\n'
             '  3. Press "Start scanning"\n\n'
-            'Reports will appear here. Nothing is traded from this window.\n')
+            'Reports will appear here. Nothing is traded from this window.\n'
+            '\n'
+            'To see the levels drawn on your MT5 charts as well:\n'
+            '  In MetaTrader, open Navigator (Ctrl+N), find QuickScanLauncher\n'
+            '  under Expert Advisors, and drag it onto any one chart. Tick\n'
+            '  "Allow Algo Trading", and make sure the Algo Trading button in\n'
+            '  the toolbar is green.\n'
+            '  It then opens a chart for each symbol you scan and adds the\n'
+            '  drawing to it. This window works without it, but the charts\n'
+            '  stay blank until it is running.\n')
 
         clear_button = QPushButton('Clear')
         clear_button.clicked.connect(self.output.clear)
@@ -336,6 +345,19 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.worker = None
+
+        # Offer to clear rather than clearing outright: the last report is
+        # often the reason the scan was stopped, and silently discarding it
+        # would be the wrong default.
+        answer = QMessageBox.question(
+            self, 'Scan stopped',
+            'The scan has stopped.\n\nClear the reports from the screen?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer == QMessageBox.Yes:
+            self.output.clear()
+            self.statusBar().showMessage('Stopped, screen cleared')
+        else:
+            self.statusBar().showMessage('Stopped')
 
     def _append(self, text: str):
         if not text:

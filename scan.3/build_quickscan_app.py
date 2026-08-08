@@ -18,6 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 APP = ROOT / 'quickscan_app.py'
+# PyInstaller writes here; the finished folder is then copied into dist/.
+STAGE = ROOT / 'build' / '_stage'
 
 # Imported dynamically inside the worker thread, so PyInstaller's static
 # analysis does not see them and would otherwise leave them out.
@@ -38,11 +40,15 @@ def main() -> int:
         print(f'Cannot find {APP.name}')
         return 1
 
-    for stale in ('build', 'dist'):
-        path = ROOT / stale
-        if path.exists():
-            print(f'removing old {stale}/')
-            shutil.rmtree(path, ignore_errors=True)
+    # PyInstaller wipes its output directory before writing, and Windows
+    # refuses to remove a directory that any process is sitting in -- an open
+    # Explorer window or a shell left with it as its working directory is
+    # enough, and the folder then cannot be deleted even when it is empty.
+    # Building into a staging area under build/ sidesteps that: writing files
+    # *into* a held directory is still allowed, so the results can be copied
+    # over the top afterwards.
+    if STAGE.exists():
+        shutil.rmtree(STAGE, ignore_errors=True)
 
     command = [
         sys.executable, '-m', 'PyInstaller',
@@ -56,6 +62,7 @@ def main() -> int:
         # its own pane, so a second black window would only confuse.
         '--windowed',
         f'--paths={ROOT}',
+        f'--distpath={STAGE}',
     ]
     for module in HIDDEN:
         command.append(f'--hidden-import={module}')
@@ -73,10 +80,25 @@ def main() -> int:
         print('\nBuild failed. The PyInstaller output above says why.')
         return result.returncode
 
-    target = ROOT / 'dist' / 'QuickScan' / 'QuickScan.exe'
-    if not target.exists():
+    built = STAGE / 'QuickScan' / 'QuickScan.exe'
+    if not built.exists():
         print('\nBuild reported success but QuickScan.exe is not where expected.')
         return 1
+
+    dist_dir = ROOT / 'dist' / 'QuickScan'
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    print(f'copying into {dist_dir}...')
+    try:
+        shutil.copytree(built.parent, dist_dir, dirs_exist_ok=True)
+    except OSError as exc:
+        print(f'\nCould not write into dist/QuickScan: {exc.strerror or exc}')
+        print('Close anything using that folder (Explorer windows, a running')
+        print(f'QuickScan.exe, a command prompt sitting in it). The build itself')
+        print(f'succeeded and is intact at {built.parent}.')
+        return 1
+    shutil.rmtree(STAGE, ignore_errors=True)
+
+    target = dist_dir / 'QuickScan.exe'
 
     # Ship the setup script and the chart sources inside the folder, so the
     # distributed copy can prepare a fresh PC on its own. PyInstaller bundles

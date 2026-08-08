@@ -49,3 +49,8 @@ ENV/
 .DS_Store
 Thumbs.db
 signals.jsonl.backup-*
+
+# PyInstaller build output
+build/
+dist/
+*.spec

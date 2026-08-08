@@ -23,6 +23,10 @@ input double MaxSpreadPoints  = 0;       // Skip entry if spread exceeds this (0
 
 input string _s1             = "--- Risk ---";          //
 input double RiskPercent      = 1.0;     // Equity risked per trade
+// Hard ceiling checked after sizing, independent of RiskPercent. A trade is
+// refused rather than shrunk: if the intended risk is this large the input
+// is wrong, and silently trading a smaller size would hide that.
+input double MaxRiskPerTradePct = 5.0;   // Never risk more than this much of equity on one trade
 input double FixedLot         = 0.0;     // If > 0, use this lot instead of risk sizing
 input int    MinGradeScore    = 80;      // Ignore signals scoring below this
 
@@ -210,7 +214,33 @@ double LotForRisk(double entry, double stop)
    double stepLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    if(stepLot > 0) lot = MathFloor(lot / stepLot) * stepLot;
    if(lot < minLot) return(0);   // risk budget cannot cover one minimum lot
-   if(lot > maxLot) lot = maxLot;
+
+   // Refuse rather than clamp. Capping at the broker maximum turns "this
+   // risk cannot be honoured" into "trade the largest position allowed",
+   // which is the opposite of what a risk limit is for. With RiskPercent
+   // left at 100 that is exactly what happened: five trades all sized to
+   // volume_max, and two of them cost about 22x their intended risk.
+   if(lot > maxLot)
+     {
+      Print("QuickScanEA: refusing ", _Symbol, " - RiskPercent=",
+            DoubleToString(RiskPercent, 2), "% wants ", DoubleToString(lot, 2),
+            " lots but the broker maximum is ", DoubleToString(maxLot, 2),
+            ". Lower RiskPercent; trading the cap would risk far more than intended.");
+      return(0);
+     }
+
+   // A single trade should never be able to cost a large share of the
+   // account, whatever RiskPercent says.
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double intended = lot * lossPerLot;
+   if(equity > 0 && intended > equity * MaxRiskPerTradePct / 100.0)
+     {
+      Print("QuickScanEA: refusing ", _Symbol, " - the stop would cost $",
+            DoubleToString(intended, 2), ", above the ",
+            DoubleToString(MaxRiskPerTradePct, 1), "% per-trade ceiling of $",
+            DoubleToString(equity * MaxRiskPerTradePct / 100.0, 2));
+      return(0);
+     }
    return(lot);
   }
 

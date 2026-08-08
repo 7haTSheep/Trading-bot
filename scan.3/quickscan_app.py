@@ -21,8 +21,8 @@ import sys
 import time
 from typing import List, Optional
 
-from PySide6.QtCore import QSettings, Qt, QThread, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QTextCursor
+from PySide6.QtCore import QSettings, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont, QTextCursor
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
                                QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBo
 import theme
 from surface import ReportHighlighter, TextureBackdrop
 from trades_view import TradesTab
+from version import REPOSITORY, __version__
 
 TIMEFRAMES = [('1 minute', '1m'), ('5 minutes', '5m'), ('15 minutes', '15m'),
               ('30 minutes', '30m'), ('1 hour', '1h'), ('4 hours', '4h')]
@@ -193,6 +194,26 @@ class SymbolLoader(QThread):
             self.loaded.emit([], str(exc))
 
 
+class UpdateChecker(QThread):
+    """Asks GitHub whether a newer release exists. Never interrupts on failure."""
+
+    found = Signal(object)      # updates.Release, or None
+
+    def __init__(self, current: str, repo: str):
+        super().__init__()
+        self.current = current
+        self.repo = repo
+
+    def run(self):
+        try:
+            import updates
+            self.found.emit(updates.check(self.current, self.repo))
+        except Exception:
+            # A failed update check is never worth surfacing; the app works
+            # perfectly well without knowing whether it is the latest.
+            self.found.emit(None)
+
+
 class HistoryLoader(QThread):
     """Reads closed trades when no scan is running and owns the connection."""
 
@@ -235,6 +256,8 @@ class MainWindow(QMainWindow):
         # its colours are semantic, not fixed.
         self._account: Optional[tuple] = None
         self._history_loaded = False
+        self.update_checker: Optional[UpdateChecker] = None
+        self._update_announce = False
 
         # ---- header --------------------------------------------------
         # The wordmark is split so the accent lands off-centre rather than on
@@ -262,6 +285,14 @@ class MainWindow(QMainWindow):
         self.account_label = QLabel('Not connected')
         self.account_label.setObjectName('Pill')
 
+        # Doubles as the version display and the manual update check, so the
+        # version is always visible without an About box to go looking for.
+        self.version_button = QPushButton(f'v{__version__}')
+        self.version_button.setObjectName('Ghost')
+        self.version_button.setCursor(Qt.PointingHandCursor)
+        self.version_button.setToolTip('Click to check for a newer version')
+        self.version_button.clicked.connect(self._check_for_updates_now)
+
         self.theme_input = QComboBox()
         self.theme_input.addItems(theme.MODES)
         self.theme_input.setCurrentText(self.mode)
@@ -276,6 +307,7 @@ class MainWindow(QMainWindow):
         header_layout.addLayout(title_block)
         header_layout.addStretch()
         header_layout.addWidget(self.account_label)
+        header_layout.addWidget(self.version_button)
         header_layout.addWidget(self.theme_input)
 
         # ---- symbols -------------------------------------------------
@@ -322,6 +354,17 @@ class MainWindow(QMainWindow):
         self.repeat_input = QCheckBox('Keep scanning as each candle closes')
         self.repeat_input.setChecked(True)
 
+        self.update_input = QCheckBox('Check for updates on start')
+        # On by default, but visible and switchable: the check contacts GitHub,
+        # and that should be the user's decision rather than a hidden one.
+        self.update_input.setChecked(
+            self.settings.value('updates/check', True, type=bool))
+        self.update_input.setToolTip(
+            'Asks github.com whether a newer QuickScan has been released.\n'
+            'Nothing is downloaded automatically.')
+        self.update_input.stateChanged.connect(
+            lambda state: self.settings.setValue('updates/check', bool(state)))
+
         settings_box = QFrame()
         settings_box.setObjectName('Panel')
         settings_layout = QVBoxLayout(settings_box)
@@ -339,6 +382,7 @@ class MainWindow(QMainWindow):
             row.addWidget(widget, 1)
             settings_layout.addLayout(row)
         settings_layout.addWidget(self.repeat_input)
+        settings_layout.addWidget(self.update_input)
 
         # ---- controls ------------------------------------------------
         self.start_button = QPushButton('Start scanning')
@@ -441,6 +485,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('Ready')
         self._watch_system_theme()
         self._load_symbols()
+        # After the window is up and the symbol load is under way, so a
+        # slow network can never delay QuickScan appearing.
+        QTimer.singleShot(4000, self._check_for_updates_quietly)
 
     # ---- theme -------------------------------------------------------
     def _watch_system_theme(self):
@@ -471,6 +518,77 @@ class MainWindow(QMainWindow):
         self.highlighter.set_palette(self.palette_)
         self.trades_tab.set_palette(self.palette_)
         self._paint_account_pill()
+
+    # ---- updates -----------------------------------------------------
+    def _check_for_updates_now(self):
+        """The manual check. Reports its result either way, unlike the
+        automatic one, because the user asked and silence would read as
+        a broken button."""
+        self._start_update_check(announce=True)
+
+    def _check_for_updates_quietly(self):
+        if self.update_input.isChecked():
+            self._start_update_check(announce=False)
+
+    def _start_update_check(self, announce: bool):
+        if getattr(self, 'update_checker', None) is not None:
+            return                       # one in flight is enough
+        self._update_announce = announce
+        self.version_button.setEnabled(False)
+        if announce:
+            self.statusBar().showMessage('Checking for updates...')
+        self.update_checker = UpdateChecker(__version__, REPOSITORY)
+        self.update_checker.found.connect(self._update_checked)
+        self.update_checker.start()
+
+    def _update_checked(self, release):
+        self.update_checker = None
+        self.version_button.setEnabled(True)
+
+        if release is None:
+            if self._update_announce:
+                self.statusBar().showMessage(
+                    f'QuickScan v{__version__} is up to date')
+            return
+
+        # A version the user has already declined stays declined, but only for
+        # the automatic check: asking again by hand should always answer.
+        skipped = self.settings.value('updates/skipped', '', type=str)
+        if not self._update_announce and release.version == skipped:
+            return
+
+        self.version_button.setText(f'v{__version__} · update')
+        self._offer_update(release)
+
+    def _offer_update(self, release):
+        notes = release.notes
+        if len(notes) > 700:
+            notes = notes[:700].rsplit('\n', 1)[0] + '\n...'
+
+        box = QMessageBox(self)
+        box.setWindowTitle('Update available')
+        box.setText(f'QuickScan {release.version} is available.\n'
+                    f'You have v{__version__}.')
+        box.setInformativeText(
+            (notes + '\n\n' if notes else '')
+            + 'This opens the download page in your browser. Nothing is '
+              'installed automatically.\n\n'
+              'Your scan history and checklists are kept outside the '
+              'application folder, so updating does not affect them.')
+        download = box.addButton('Open download page', QMessageBox.AcceptRole)
+        skip = box.addButton('Skip this version', QMessageBox.DestructiveRole)
+        box.addButton('Not now', QMessageBox.RejectRole)
+        box.setDefaultButton(download)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is download:
+            QDesktopServices.openUrl(QUrl(release.url))
+            self.statusBar().showMessage('Opened the download page')
+        elif clicked is skip:
+            self.settings.setValue('updates/skipped', release.version)
+            self.version_button.setText(f'v{__version__}')
+            self.statusBar().showMessage(f'Skipping {release.version}')
 
     # ---- trade history -----------------------------------------------
     def _tab_changed(self, index: int):

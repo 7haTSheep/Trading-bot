@@ -136,6 +136,10 @@ def main() -> int:
     if readme.exists():
         shutil.copy2(readme, dist_dir / 'README.md')
         print(f'included {readme.name} as README.md')
+    changelog = ROOT / 'CHANGELOG.md'
+    if changelog.exists():
+        shutil.copy2(changelog, dist_dir / 'CHANGELOG.md')
+        print('included CHANGELOG.md')
 
     size = sum(f.stat().st_size for f in (ROOT / 'dist' / 'QuickScan').rglob('*') if f.is_file())
     print(f'\nBuilt: {target}')

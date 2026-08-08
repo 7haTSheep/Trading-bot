@@ -78,12 +78,36 @@ def main() -> int:
         print('\nBuild reported success but QuickScan.exe is not where expected.')
         return 1
 
+    # Ship the setup script and the chart sources inside the folder, so the
+    # distributed copy can prepare a fresh PC on its own. PyInstaller bundles
+    # Python and the C++ runtime, but not MetaTrader or the .mq5 files, and
+    # those are what a new machine is actually missing.
+    dist_dir = target.parent
+    setup = ROOT / 'Setup.bat'
+    if setup.exists():
+        shutil.copy2(setup, dist_dir / 'Setup.bat')
+        print('included Setup.bat')
+    mql5 = ROOT / 'MQL5'
+    if mql5.exists():
+        for sub in ('Indicators', 'Experts'):
+            source = mql5 / sub
+            if not source.exists():
+                continue
+            destination = dist_dir / 'MQL5' / sub
+            destination.mkdir(parents=True, exist_ok=True)
+            for item in source.glob('*.mq5'):
+                shutil.copy2(item, destination / item.name)
+                print(f'included MQL5/{sub}/{item.name}')
+    readme = ROOT / 'README.md'
+    if readme.exists():
+        shutil.copy2(readme, dist_dir / 'README.md')
+
     size = sum(f.stat().st_size for f in (ROOT / 'dist' / 'QuickScan').rglob('*') if f.is_file())
     print(f'\nBuilt: {target}')
     print(f'Folder size: {size / 1024 / 1024:.0f} MB')
-    print('\nCopy the whole dist/QuickScan folder to the other PC and run')
-    print('QuickScan.exe inside it. MetaTrader 5 must be installed and logged')
-    print('in on that PC as well.')
+    print('\nCopy the whole dist/QuickScan folder to the other PC, then run')
+    print('Setup.bat inside it. That checks for MetaTrader, offers to install')
+    print('it, and copies the chart files in. Python is already bundled.')
     return 0
 
 

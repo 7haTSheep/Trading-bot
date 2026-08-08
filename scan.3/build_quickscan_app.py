@@ -133,13 +133,20 @@ def main() -> int:
     readme = ROOT / 'APP_README.md'
     if not readme.exists():
         readme = ROOT / 'README.md'
-    if readme.exists():
-        shutil.copy2(readme, dist_dir / 'README.md')
-        print(f'included {readme.name} as README.md')
+    # Shipped as .txt rather than .md: Windows has no default handler for a
+    # .md file, so double-clicking one on a fresh PC does nothing useful,
+    # while .txt opens in Notepad. The Markdown originals stay in the
+    # repository, where GitHub renders them.
+    import md_to_text
+
     changelog = ROOT / 'CHANGELOG.md'
-    if changelog.exists():
-        shutil.copy2(changelog, dist_dir / 'CHANGELOG.md')
-        print('included CHANGELOG.md')
+    for source, name in ((readme, 'README.txt'), (changelog, 'CHANGELOG.txt')):
+        if source.exists():
+            md_to_text.convert_file(source, dist_dir / name)
+            print(f'included {source.name} as {name}')
+    # A previous build shipped Markdown; leave no stale copy behind.
+    for stale in ('README.md', 'CHANGELOG.md'):
+        (dist_dir / stale).unlink(missing_ok=True)
 
     size = sum(f.stat().st_size for f in (ROOT / 'dist' / 'QuickScan').rglob('*') if f.is_file())
     print(f'\nBuilt: {target}')

@@ -1,116 +1,274 @@
-# QuickScan.py — Institutional MT5 Trade Decision Engine & Scanner
+# QuickScan
 
-`quickscan.py` is a professional command-line **Trade Decision Engine** and multi-symbol market scanner for MetaTrader 5 (MT5), specifically optimized for Synthetic Indices (Deriv) and Forex.
+QuickScan watches the charts in MetaTrader 5 for you and tells you what it
+thinks about each one: whether there is a trade worth taking, where you would
+get in, where you would get out if it went wrong, and where you would take
+profit.
 
-Rather than simply reporting whether the market is bullish or bearish, `quickscan.py` acts as a professional discretionary trader, evaluating setups and answering:
-* **Should I trade right now?** (`BUY NOW`, `SELL NOW`, `WAIT FOR PULLBACK`, `NO TRADE`)
-* **What grade is this setup?** (0–100 score; Grades `A+`, `A`, `B`, `C`)
-* **Where is the safest entry, stop loss, and profit targets?** (TP1, TP2, TP3 with hit probabilities and R:R)
-* **What exact chart markings should I place on MT5?**
-* **What invalidates this trade thesis?**
+It can also draw all of that straight onto your MT5 chart, and it can place
+the trades itself if you let it.
 
----
-
-## 1. Prerequisites
-
-1. **Operating System**: Windows (MetaTrader 5 Native API requirement)
-2. **Python**: Python 3.10 or higher installed
-3. **MetaTrader 5 Terminal**: Installed, running, and logged into your trading account (e.g. Deriv, IC Markets, Exness).
-4. **Dependencies**: Install required Python packages:
-   ```cmd
-   pip install MetaTrader5 numpy
-   ```
+**It is a tool for thinking, not a money machine.** Please read
+[Before you trade real money](#before-you-trade-real-money) at the bottom.
+That section is short and it is the most important part of this file.
 
 ---
 
-## 2. Command Line Syntax & Usage
+## What you need
 
-```cmd
-python quickscan.py [SYMBOLS...] [FLAGS] [INTERVAL]
+- A Windows PC
+- MetaTrader 5, installed and logged into your account
+- About ten minutes
+
+You do **not** need to know how to program.
+
+---
+
+## Setting it up
+
+Double-click **`Install.bat`**.
+
+It checks whether you have everything, offers to download anything missing
+(Python, MetaTrader 5), and copies the chart files into MetaTrader for you.
+It asks before installing anything, and it is safe to run more than once.
+
+When it finishes it will tell you to do one thing by hand, because it cannot
+do it for you:
+
+1. Open **MetaEditor** (press **F4** inside MetaTrader)
+2. Find **QuickScanChart** and **QuickScanEA** in the list on the left
+3. Click each one and press **F7** to compile it
+
+Compiling just means "turn this into something MetaTrader can run". You only
+do it once.
+
+---
+
+## Running your first scan
+
+Open a **Command Prompt** in this folder (in File Explorer, click the address
+bar, type `cmd`, press Enter), then type:
+
 ```
-
-> [!IMPORTANT]
-> Always place quotes around multi-word symbol names (e.g. `"Volatility 75 (1s) Index"`).
-
----
-
-## 3. How to Run `quickscan.py`
-
-### A. Single Symbol Detailed Scan
-Scan a single symbol and generate the full 14-point institutional analysis:
-```cmd
 python quickscan.py "Volatility 75 (1s) Index"
 ```
-```cmd
-python quickscan.py EURUSD
+
+That scans one symbol once and prints a report.
+
+**Put quotes around any name with spaces in it.** `"Volatility 75 (1s) Index"`
+needs them; `EURUSD` does not.
+
+### Keeping it running
+
+Add a timeframe at the end and it keeps going, re-checking each time a new
+candle finishes:
+
+```
+python quickscan.py "Volatility 75 (1s) Index" 5m
 ```
 
----
+`5m` means it re-checks every time a 5-minute candle closes. You can use
+`1m`, `5m`, `15m`, `30m`, `1h`, `4h` or `1d`. Press **Ctrl+C** to stop.
 
-### B. Multi-Symbol Scan
-Scan multiple symbols sequentially. If multiple symbols are scanned, an executive **Master Summary Table** is printed at the end:
-```cmd
-python quickscan.py "Volatility 75 (1s) Index" "Volatility 25 Index" EURUSD
+### Several symbols at once
+
+Just list them:
+
+```
+python quickscan.py "Volatility 15 Index" "Volatility 25 Index" EURUSD 5m
 ```
 
----
+At the end you get a summary table comparing them, best score first.
 
-### C. Continuous Scanning Loop (Interval Mode)
-To automatically re-scan symbols on a recurring loop, append an interval string (`10s`, `30s`, `1m`, `5m`) as the last argument:
-```cmd
-python quickscan.py "Volatility 75 (1s) Index" 30s
-```
-```cmd
-python quickscan.py "Volatility 75 (1s) Index" "Volatility 25 Index" 1m
-```
-*Press `Ctrl + C` at any time to stop the loop.*
+### Two settings worth knowing
 
----
-
-### D. Customizing Risk % and ATR Stop Multiple
-
-* `--risk <FLOAT>`: Set risk percentage per trade based on account equity (default: `5.0`%).
-* `--stop-atr <FLOAT>`: Set stop loss distance multiplier for ATR fallback (default: `2.0`).
-
-```cmd
-python quickscan.py "Volatility 75 (1s) Index" --risk 2.5 --stop-atr 1.5
-```
-
----
-
-### E. Compact Compare Mode (`--compare`)
-Prints a streamlined, side-by-side comparison table of all watched symbols instead of detailed individual panels:
-```cmd
-python quickscan.py "Volatility 75 (1s) Index" "Volatility 25 Index" EURUSD --compare
-```
-
----
-
-## 4. Understanding Output Sections
-
-Every detailed scan output is organized into 14 institutional analysis sections:
-
-| Section | Description |
+| Setting | What it does |
 |---|---|
-| **1. Trade Decision Layer** | Direct trade signal (`BUY NOW`, `SELL NOW`, `WAIT FOR PULLBACK`, `NO TRADE`) and rationale. |
-| **2. Entry Quality Score** | 0–100 weighted score, setup Grade (`A+`, `A`, `B`, `C`), and confidence level. |
-| **3. Pullback & State** | Precise trend structure classification (e.g., *Deep Pullback into Discount*). |
-| **4. Actionable Instructions** | Exact Buy/Sell entry zones, required confirmations, and expected R:R ratio. |
-| **5. Chart Marking Assistant** | Coordinates and levels to draw on your MT5 chart (Swing High/Low, ORB, VWAP, Pivots, FVGs). |
-| **6. Entry Zone Generator** | Calculated price ranges for optimal limit or market orders. |
-| **7. Dynamic Stop Loss** | Chosen stop price based on structural swing, ATR, or Order Block boundaries. |
-| **8. Multiple Profit Targets** | **TP1** (Conservative), **TP2** (Structural), and **TP3** (Extended Runner) with hit probabilities. |
-| **9. Trade Invalidation** | Exact condition that invalidates the trade setup (e.g., *Close below M5 Swing Low*). |
-| **10. Institutional Checklist**| 8-point checklist status (`PASS`, `FAIL`, `WARN`) evaluating EMAs, RSI, VWAP, ORB, and ADX. |
-| **11. Position Sizing** | Account-fitted lot size calculation matching your `--risk` % parameter. |
-| **12. Market Structure** | ADX trend strength, market phase (Expansion vs Compression), and liquidity location. |
-| **13. Executive Summary** | Concise setup summary card for rapid trade execution. |
-| **14. Visualization Guidance** | Guidelines for chart drawing and manual order management. |
+| `--risk 1` | How much of your account a trade would risk, as a percentage. Only affects the position size it *suggests*. |
+| `--stop-atr 2.0` | How far away the stop-loss goes, measured in average candle sizes. Bigger means more room, and a smaller position. |
+
+```
+python quickscan.py "Volatility 15 Index" --risk 1 --stop-atr 2.0 5m
+```
 
 ---
 
-## 5. Troubleshooting
+## Reading the report
 
-* **`MT5 init failed`**: Make sure MetaTrader 5 desktop application is open and logged into your trading account before running the script.
-* **`NOT AVAILABLE on this account`**: Verify the symbol name matches your broker's exact symbol name in MT5 Market Watch window.
-* **No color formatting**: Windows Terminal, PowerShell, or Command Prompt support ANSI colors natively. If using legacy `cmd.exe`, enable color mode or run inside Windows Terminal.
+The most important line is the **decision**:
+
+| It says | It means |
+|---|---|
+| **BUY NOW** | Conditions for buying are met right now |
+| **SELL NOW** | Conditions for selling are met right now |
+| **WAIT FOR PULLBACK** | Right idea, wrong price. Price has run too far; wait for it to come back |
+| **WAIT FOR CONFIRMATION** | Nearly there, but something has not lined up yet |
+| **NO TRADE** | Nothing worth taking |
+
+Then the **score**, from 0 to 100, and a **grade** (A+, A, B, C, Wait). Higher
+means more of its checks agreed.
+
+Treat the score as "how many boxes were ticked", not "how likely this is to
+win". Whether a high score actually wins more often is a separate question,
+and one this project measures rather than assumes. See
+[Does any of this work?](#does-any-of-this-work) below.
+
+You also get:
+
+- **Entry zone** — the price range it would want to buy or sell in
+- **Stop loss** — where the idea is proven wrong, so you get out
+- **TP1, TP2, TP3** — profit targets, nearest first
+- **Invalidation** — what would have to happen for the idea to be dead
+
+### R:R, briefly
+
+You will see numbers like `1.59:1`. That is reward against risk: if the stop
+costs you £100, hitting that target makes £159.
+
+Anything below `1:1` means you are risking more than you stand to gain, and
+you would need to be right more than half the time just to break even. It is
+worth checking.
+
+---
+
+## Seeing it on the chart
+
+Two extra pieces put the same information onto your MT5 charts.
+
+**QuickScanChart** is the drawing. Attach it to a chart and you get the entry
+zone as a shaded box, the stop and targets as lines, all labelled, plus a
+small panel showing the decision, grade and score.
+
+**QuickScanLauncher** saves you doing that by hand. Attach it once to any
+chart and it opens a chart for every symbol you scan and adds the drawing to
+each. To use it: find it under **Expert Advisors** in the Navigator panel,
+drag it onto any chart, tick **Allow Algo Trading**, and make sure the
+**Algo Trading** button in the toolbar is green.
+
+You need the scanner running for either to show anything: the scanner works
+out the numbers, and these only draw them.
+
+---
+
+## Letting it trade for you
+
+**QuickScanEA** places trades from the signals automatically.
+
+Before you even consider this, read the last section of this file.
+
+It will not touch a real-money account unless you deliberately change a
+setting called `AllowLiveAccount`. Leave that alone. Use a demo account.
+
+Settings that matter, all editable when you attach it:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `RiskPercent` | 1.0 | Percentage of the account risked per trade |
+| `MaxRiskPerTradePct` | 5.0 | Hard ceiling. A trade wanting more is refused outright |
+| `MaxDailyLossPct` | 3.0 | Stops trading for the day after losing this much |
+| `MaxOpenPositions` | 3 | Most trades open at once |
+| `MinGradeScore` | 80 | Ignores setups scoring below this |
+| `AllowLiveAccount` | false | Must be true to trade real money. Leave it false |
+
+**Check `RiskPercent` before you start it.** Setting it too high once cost a
+demo account half its value in five trades: every trade was sized at the
+largest the broker would allow. The EA now refuses trades that big instead of
+placing them, but the setting is still yours to get right.
+
+Once in a trade it moves your stop-loss as things go your way: first to
+slightly above your entry, so the trade can no longer lose, then up to each
+profit target as price passes it.
+
+---
+
+## Does any of this work?
+
+This is the honest part.
+
+The project measures itself. Every signal is recorded, and later checked
+against what price actually did, so its claims can be tested rather than
+believed.
+
+What that measurement says so far:
+
+- The edge is **small**. Across roughly 11,000 historical setups, most symbols
+  came out close to break-even once the spread was accounted for.
+- **The spread matters more than the strategy.** The cost of entering a trade
+  is often larger than the whole expected gain. On Volatility 75 the spread
+  costs several times more than the edge it is trying to capture, so that
+  symbol loses money almost regardless of how good the signals are.
+- **A high score has not yet been shown to beat a low one.** There is not
+  enough live data to say, and the project will not pretend otherwise.
+
+You can look at this yourself at any time:
+
+```
+python outcomes.py          how past signals actually turned out
+python calibration.py       which symbols are worth trading, if any
+python entry_accuracy.py    whether entries hit the zone, or came too early
+```
+
+If a symbol is losing money consistently and there is enough evidence to be
+sure, the scanner starts warning you about it. Until it is sure, it says so
+rather than guessing.
+
+---
+
+## Other bits
+
+```
+python dashboard.py         a live screen you can leave open beside MT5
+```
+
+`research/FINDINGS.md` has the detail behind the numbers above, including two
+ideas that sounded good and were tested and dropped.
+
+---
+
+## When something does not work
+
+**"python is not recognised"** — Python is not installed, or not set up so
+Windows can find it. Run `Install.bat` again and let it install Python.
+
+**"MT5 init failed"** — MetaTrader 5 is not running, or not logged in. Open it
+first.
+
+**"NOT AVAILABLE on this account"** — your broker spells that symbol
+differently. Open the Market Watch window in MT5 and copy the name exactly.
+
+**Odd characters or a crash when printing** — type this first, then run again:
+```
+set PYTHONIOENCODING=utf-8
+```
+
+**The chart shows nothing** — the scanner needs to be running, and it must be
+scanning that exact symbol.
+
+**"cannot load QuickScanChart"** — it has not been compiled. F4, select it,
+F7.
+
+---
+
+## Before you trade real money
+
+Please take this seriously.
+
+**This is not advice.** It is software that applies rules to price. It cannot
+know what will happen next, and neither can anyone else.
+
+**The measured edge is very small, and may be nothing at all.** The section
+above is not modesty; it is what the data says.
+
+**Deriv's Volatility indices are not real markets.** They are generated
+numbers designed to move like markets. There are no companies, no news, and
+no other traders behind them.
+
+**Automated trading fails in ways manual trading does not.** It can repeat a
+mistake hundreds of times without pausing. One wrong setting emptied half a
+demo account in five trades, and it did that in minutes.
+
+**Use a demo account until you have your own evidence.** Not until it feels
+right, and not until it has a good day. Until the numbers, over enough
+trades, say something.
+
+Never risk money you cannot afford to lose.

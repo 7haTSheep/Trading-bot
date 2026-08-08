@@ -74,6 +74,10 @@ def main() -> int:
                    'theme.py', 'surface.py', 'trades_view.py'):
         if (ROOT / source).exists():
             command.append(f'--add-data={ROOT / source};.')
+    # The bundled typefaces, and the OFL licence texts they must ship with.
+    fonts = ROOT / 'assets' / 'fonts'
+    if fonts.exists():
+        command.append(f'--add-data={fonts};assets/fonts')
     command.append(str(APP))
 
     print('building, this takes a couple of minutes...\n')

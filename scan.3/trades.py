@@ -31,17 +31,7 @@ CHECKLIST_ITEMS = [
 ]
 
 
-def data_dir() -> str:
-    """Somewhere durable to keep the checklist log.
-
-    Deliberately not the application folder: rebuilding or reinstalling the
-    executable replaces that, and a discipline record you lose on an update is
-    worse than none, because you would not notice it had gone.
-    """
-    base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
-    path = os.path.join(base, 'QuickScan')
-    os.makedirs(path, exist_ok=True)
-    return path
+from paths import data_dir      # noqa: F401  (re-exported for callers)
 
 
 @dataclass

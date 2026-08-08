@@ -22,13 +22,49 @@ from typing import Optional
 
 MODES = ('System', 'Light', 'Dark')
 
-# Display face for headings and controls, paired with a monospace for data.
-# Bahnschrift is the DIN-derived condensed grotesque that ships with Windows
-# 10 and later; it reads as instrument labelling rather than interface chrome.
-DISPLAY_FAMILIES = ('Bahnschrift Condensed', 'Bahnschrift SemiCondensed',
-                    'Bahnschrift', 'Oswald', 'Arial Narrow')
-MONO_FAMILIES = ('Cascadia Mono', 'Cascadia Code', 'Consolas',
-                 'DejaVu Sans Mono', 'Courier New')
+# Display face for headings, paired with a monospace for data. Both are
+# bundled rather than borrowed from the system, so the window looks the same
+# on a machine that has neither: Syne for its eccentric geometric capitals,
+# JetBrains Mono because the reports are columns of figures and it was what
+# the discipline app was designed against. Both are OFL licensed; the licence
+# texts ship beside them.
+#
+# The system faces after them are fallbacks for a stripped-down build where
+# the assets did not make it in.
+DISPLAY_FAMILIES = ('Syne', 'Bahnschrift Condensed', 'Bahnschrift',
+                    'Oswald', 'Arial Narrow')
+MONO_FAMILIES = ('JetBrains Mono', 'Cascadia Mono', 'Cascadia Code',
+                 'Consolas', 'DejaVu Sans Mono', 'Courier New')
+
+_fonts_loaded = False
+
+
+def load_fonts() -> list:
+    """Register the bundled fonts. Must run before any stylesheet is applied.
+
+    Returns the families that became available, which is empty when the assets
+    are missing -- the family lists above then fall through to system faces
+    rather than the window rendering in whatever Qt picks by default.
+    """
+    global _fonts_loaded
+    if _fonts_loaded:
+        return []
+    _fonts_loaded = True
+
+    import glob
+    import os
+
+    from PySide6.QtGui import QFontDatabase
+
+    import paths
+
+    loaded = []
+    pattern = os.path.join(paths.resource_dir(), 'assets', 'fonts', '*.ttf')
+    for path in sorted(glob.glob(pattern)):
+        handle = QFontDatabase.addApplicationFont(path)
+        if handle != -1:
+            loaded.extend(QFontDatabase.applicationFontFamilies(handle))
+    return sorted(set(loaded))
 
 
 @dataclass(frozen=True)

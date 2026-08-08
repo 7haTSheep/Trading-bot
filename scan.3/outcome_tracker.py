@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import paths
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -64,8 +65,27 @@ def _classify_placement(direction: str, price: float,
     return PLACEMENT_BEFORE if price < low else PLACEMENT_AFTER
 
 
+_migrated = False
+
+
 def _log_path(directory: Optional[str] = None) -> str:
-    base = directory or os.path.dirname(os.path.abspath(__file__))
+    """Where the signal log lives.
+
+    An explicit directory still wins, which is what the tests rely on.
+    Otherwise it is the per-user data directory, and a log left in the old
+    location beside the program is brought across the first time we look.
+    """
+    if directory:
+        return os.path.join(directory, LOG_FILENAME)
+
+    global _migrated
+    base = paths.data_dir()
+    if not _migrated:
+        _migrated = True                # attempt once per process either way
+        try:
+            paths.migrate(LOG_FILENAME, base)
+        except OSError:
+            pass                        # keep reading the new location anyway
     return os.path.join(base, LOG_FILENAME)
 
 

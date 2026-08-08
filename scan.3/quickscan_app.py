@@ -636,6 +636,9 @@ def main():
     # Fusion is the one style that looks the same on every Windows version and
     # takes a custom palette properly; the native style ignores much of it.
     app.setStyle('Fusion')
+    # Before the window exists: the stylesheet names these families, and Qt
+    # resolves a font name once at the point it is applied.
+    theme.load_fonts()
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
